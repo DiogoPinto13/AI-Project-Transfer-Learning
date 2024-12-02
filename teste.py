@@ -43,7 +43,7 @@ for layer in model.layers:
     layer.trainable = False
 
 #add extra class
-model.add(Dense(44, activation='softmax'))
+model.add(Dense(45, activation='softmax'))
 model.summary()
 
 
