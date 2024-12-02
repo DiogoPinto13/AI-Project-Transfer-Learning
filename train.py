@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 import cv2
 import pandas as pd
 import os
+import keras
+from PIL import Image
 
 input_shape = (30, 30, 3)
 regularizer = tf.keras.regularizers.l2(3)#0.0001)
@@ -17,6 +19,57 @@ optimizer = tf.keras.optimizers.Adam(
     amsgrad=True
 )
 
+class Distiller(keras.Model):
+    def __init__(self, student, teacher):
+        super().__init__()
+        self.teacher = teacher
+        self.student = student
+
+    def compile(
+        self,
+        optimizer,
+        metrics,
+        student_loss_fn,
+        distillation_loss_fn,
+        alpha=0.1,
+        temperature=3,
+    ):
+        """Configure the distiller.
+
+        Args:
+            optimizer: Keras optimizer for the student weights
+            metrics: Keras metrics for evaluation
+            student_loss_fn: Loss function of difference between student
+                predictions and ground-truth
+            distillation_loss_fn: Loss function of difference between soft
+                student predictions and soft teacher predictions
+            alpha: weight to student_loss_fn and 1-alpha to distillation_loss_fn
+            temperature: Temperature for softening probability distributions.
+                Larger temperature gives softer distributions.
+        """
+        super().compile(optimizer=optimizer, metrics=metrics)
+        self.student_loss_fn = student_loss_fn
+        self.distillation_loss_fn = distillation_loss_fn
+        self.alpha = alpha
+        self.temperature = temperature
+
+    def compute_loss(
+        self, x=None, y=None, y_pred=None, sample_weight=None, allow_empty=False
+    ):
+        teacher_pred = self.teacher(x, training=False)
+        student_loss = self.student_loss_fn(y, y_pred)
+
+        distillation_loss = self.distillation_loss_fn(
+            tf.nn.softmax(teacher_pred / self.temperature, axis=1),
+            tf.nn.softmax(y_pred / self.temperature, axis=1),
+        ) * (self.temperature**2)
+
+        loss = self.alpha * student_loss + (1 - self.alpha) * distillation_loss
+        return loss
+
+    def call(self, x):
+        return self.student(x)
+    
 def predictImage(model, image_path):
     image = cv2.imread(image_path)
     resized_image = cv2.resize(image, (30, 30))
@@ -44,16 +97,12 @@ def predictImage(model, image_path):
 model = tf.keras.models.load_model("traffic_classifier.h5")
 #model.compile(optimizer='adam', loss='mean_squared_error')
 model.compile(optimizer='adam',
-              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
               metrics=['accuracy'])
 
 model.summary()
 
 previousOutputLayer = model.layers[len(model.layers) - 1].get_weights()
-#print(previousOutputLayer)
-
-
-predictImage(model, "teste.png")
 
 #freeze backbone
 model._layers.pop()
@@ -63,7 +112,6 @@ for layer in model.layers:
 #add extra class
 model.add(Dense(45, activation='softmax', kernel_regularizer=regularizer))
 model.summary()
-
 
 #add the weights of the previous layer
 currentOutputLayer = model.layers[len(model.layers) - 1].get_weights()
@@ -95,12 +143,14 @@ model.layers[len(model.layers) - 1].set_weights(currentOutputLayer)
 #print(model.layers[len(model.layers) - 1].get_weights())
 
 model.compile(optimizer=optimizer,
-              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
               metrics=['accuracy'])
 
-#model.compile(optimizer='adam', loss='mean_squared_error')
 model.summary()
 
+previousModel = keras.models.clone_model(model)
+print("cloning...")                                                        
+previousModel.summary()
 
 def readImages(path):
     # Specify the parent folder path
@@ -135,7 +185,6 @@ def readImages(path):
     df['number'] = df['number'].replace(class_mapping)
     return df
 
-
 class DataGenerator(Sequence):
     def __init__(self, dataframe, root, batch_size=32, shuffle=True):
         self.df = dataframe.sample(frac=1).reset_index(drop=True) if shuffle else dataframe
@@ -163,7 +212,7 @@ class DataGenerator(Sequence):
         if self.shuffle:
             self.df = self.df.sample(frac=1).reset_index(drop=True)
 
-#labels = np.full(756, 43)
+
 dfTrain = readImages("train")
 dfTest = readImages("test")
 dfVal = readImages("val")
@@ -172,48 +221,6 @@ trainGen = DataGenerator(dfTrain, "mixedDataset/train", batch_size=8, shuffle=Tr
 testGen = DataGenerator(dfTest, "mixedDataset/test", batch_size=8, shuffle=True)
 valGen = DataGenerator(dfVal, "mixedDataset/val", batch_size=8, shuffle=True)
 
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-
-
-# @tf.function
-# def train_step(inputs, labels, model, optimizer):
-#     with tf.GradientTape() as tape:
-#         predictions = model(inputs, training=True)
-#         loss = tf.reduce_mean(tf.keras.losses.sparse_categorical_crossentropy(labels, predictions))
-
-#     grads = tape.gradient(loss, model.trainable_variables)
-
-#     # Freeze all neurons except for the last 2 in the output layer (Layer index 1)
-#     for i, grad in enumerate(grads):
-#         if i == 1:  # This corresponds to the weights of the output layer (layer 1)
-#             # We freeze all neurons except the last two
-#             # Get the number of neurons in the output layer
-#             num_neurons = 45
-
-#             # Create a mask to freeze neurons except the last 2
-#             mask = tf.concat([tf.zeros([grad.shape[0], num_neurons - 2]), tf.ones([grad.shape[0], 2])], axis=1)
-            
-#             # Apply the mask to the gradients
-#             grad *= mask  # This will zero out all columns except the last two
-
-
-# # Training loop
-# def train_model(model, train_generator, optimizer, epochs=1):
-#     for epoch in range(epochs):
-#         print(f"Epoch {epoch + 1}/{epochs}")
-        
-#         # Iterate over batches in the generator
-#         for batch_idx, (inputs, labels) in enumerate(train_generator):
-#             train_step(inputs, labels, model, optimizer)
-            
-#             if batch_idx % 100 == 0:  # Print a message every 100 batches
-#                 print(f"Batch {batch_idx}/{len(train_generator)}")
-
-# # Optimizer
-# optimizer = tf.keras.optimizers.Adam()
-
-# # Train the model
-# train_model(model, trainGen, optimizer, epochs=3)
 
 history = model.fit(
     trainGen,
@@ -225,13 +232,6 @@ testLoss, testAcc = model.evaluate(testGen)
 
 print("Test loss = " + str(testLoss))
 print("Accuracy = " + str(testAcc))
-
-
-predictImage(model, "teste.png")
-predictImage(model, "mixedDataset/val/bike/WVOWANM00YXT.jpg")
-
-
-tf.keras.models.save_model(model, "new_model_3.h5")
 
 #fine tuning step
 for layer in model.layers:
@@ -250,11 +250,48 @@ testLoss, testAcc = model.evaluate(testGen)
 print("Test loss = " + str(testLoss))
 print("Accuracy = " + str(testAcc))
 
-predictImage(model, "teste.png")
-predictImage(model, "mixedDataset/val/bike/WVOWANM00YXT.jpg")
+distiller = Distiller(student=model, teacher=previousModel)
+distiller.compile(
+    optimizer=tf.keras.optimizers.Adam(
+        learning_rate=0.00001,
+        amsgrad=True),
+    metrics=['accuracy'],
+    student_loss_fn=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+    distillation_loss_fn=tf.keras.losses.KLDivergence(),
+    alpha=0.001,#0.0001,
+    temperature=10#0.01
+)
 
-#model.layers[len(model.layers) - 1].set_weights(currentOutputLayer)
-# predictImage(model, "teste.png")
-# predictImage(model, "mixedDataset/val/bike/WVOWANM00YXT.jpg")
 
-tf.keras.models.save_model(model, "new_model_4.h5")
+history = distiller.fit(trainGen, epochs=1, validation_data=valGen)
+distiller.evaluate(testGen)
+
+
+#evaluate using the original dataset
+from sklearn.metrics import accuracy_score
+
+# Importing the test dataset
+y_test = pd.read_csv('Test.csv')
+
+labels = y_test["ClassId"].values
+imgs = y_test["Path"].values
+
+data=[]
+
+# Retreiving the images
+with tf.device('/GPU:0'):
+    for img in imgs:
+        image = Image.open(img)
+        image = image.resize([30, 30])
+        data.append(np.array(image))
+
+X_test=np.array(data)
+with tf.device('/GPU:0'):
+    pred = np.argmax(distiller.predict(X_test), axis=-1)
+
+#Accuracy with the test data
+from sklearn.metrics import accuracy_score
+print(accuracy_score(labels, pred))
+
+distiller.save('final_distiller.keras')
+#tf.keras.models.save_model(distiller, "distiller_2.h5")
