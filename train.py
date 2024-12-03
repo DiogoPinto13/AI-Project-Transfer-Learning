@@ -132,7 +132,7 @@ def readImages(path):
     # Replace class labels with numbers
     class_mapping = {
         'minibus': 43,
-        'bike': 44
+        'cab': 44
     }
     df['number'] = df['number'].replace(class_mapping)
     return df
@@ -151,8 +151,12 @@ def readImages(path):
 # model.add(Dropout(rate=0.25))
 # model.add(Dense(43, activation='softmax'))
 
-originalAccuracyList = list()
-newAccuracyList = list()
+originalAccuracyList1 = list()
+originalAccuracyList2 = list()
+originalAccuracyList3 = list()
+newAccuracyList1 = list()
+newAccuracyList2 = list()
+newAccuracyList3 = list()
 
 def train():
     model = tf.keras.models.load_model("traffic_classifier.h5")
@@ -238,11 +242,41 @@ def train():
 
     print("Test loss = " + str(testLoss))
     print("Accuracy = " + str(testAcc))
+    newAccuracyList1.appedn(testAcc)
 
     #fine tuning step
     for layer in model.layers:
         layer.trainable = True
 
+
+            #evaluate using the original dataset
+    from sklearn.metrics import accuracy_score
+
+    # Importing the test dataset
+    y_test = pd.read_csv('Test.csv')
+
+    labels = y_test["ClassId"].values
+    imgs = y_test["Path"].values
+
+    data=[]
+
+    # Retreiving the images
+    with tf.device('/GPU:0'):
+        for img in imgs:
+            image = Image.open(img)
+            image = image.resize([30, 30])
+            data.append(np.array(image))
+
+    X_test=np.array(data)
+    with tf.device('/GPU:0'):
+        pred = np.argmax(model.predict(X_test), axis=-1)
+
+    #Accuracy with the test data
+    from sklearn.metrics import accuracy_score
+    originalAccuracy = accuracy_score(labels, pred)
+    originalAccuracyList1.append(originalAccuracy)
+
+    print("Original dataset accuracy: " + str(originalAccuracy))
 
     print("Fine tune process")
     history = model.fit(
@@ -256,6 +290,40 @@ def train():
     print("Test loss = " + str(testLoss))
     print("Accuracy = " + str(testAcc))
 
+
+        #evaluate using the original dataset
+    from sklearn.metrics import accuracy_score
+
+    # Importing the test dataset
+    y_test = pd.read_csv('Test.csv')
+
+    labels = y_test["ClassId"].values
+    imgs = y_test["Path"].values
+
+    data=[]
+
+    # Retreiving the images
+    with tf.device('/GPU:0'):
+        for img in imgs:
+            image = Image.open(img)
+            image = image.resize([30, 30])
+            data.append(np.array(image))
+
+    X_test=np.array(data)
+    with tf.device('/GPU:0'):
+        pred = np.argmax(model.predict(X_test), axis=-1)
+
+    #Accuracy with the test data
+    from sklearn.metrics import accuracy_score
+    originalAccuracy = accuracy_score(labels, pred)
+    originalAccuracyList2.append(originalAccuracy)
+
+    print("Original dataset accuracy: " + str(originalAccuracy))
+
+    #keras.backend.clear_session()
+    #return
+    
+    print("#################### DISTILLERT TIME ###########################")
     distiller = Distiller(student=model, teacher=previousModel)
     distiller.compile(
         optimizer=tf.keras.optimizers.Adam(
@@ -264,14 +332,14 @@ def train():
         metrics=['accuracy'],
         student_loss_fn=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
         distillation_loss_fn=tf.keras.losses.KLDivergence(),
-        alpha=0.001,#0.0001,
+        alpha=0.1,#0.0001,
         temperature=10#0.01
     )
 
-    history = distiller.fit(trainGen, epochs=1, validation_data=valGen)
+    history = distiller.fit(trainGen, epochs=20, validation_data=valGen)
     newDatasetLoss, newDatasetAccuracy = distiller.evaluate(testGen)
 
-    newAccuracyList.append(newDatasetAccuracy)
+    newAccuracyList2.append(newDatasetAccuracy)
     print("New dataset accuracy: " + str(newDatasetAccuracy))
 
     #evaluate using the original dataset
@@ -299,7 +367,7 @@ def train():
     #Accuracy with the test data
     from sklearn.metrics import accuracy_score
     originalAccuracy = accuracy_score(labels, pred)
-    originalAccuracyList.append(originalAccuracy)
+    originalAccuracyList3.append(originalAccuracy)
 
     print("Original dataset accuracy: " + str(originalAccuracy))
 
@@ -318,12 +386,29 @@ def main():
     print("####################")
 
     print("Lists:")
-    print(originalAccuracyList)
-    print(newAccuracyList)
+    print(originalAccuracyList1)
+    print(originalAccuracyList2)
+    print(originalAccuracyList3)
+    print(newAccuracyList1)
+    print(newAccuracyList2)
+    print(newAccuracyList3)
     
-    print("Original dataset accuracy " + str(np.mean(originalAccuracyList)) + " with std of " + str(np.std(originalAccuracyList)))
-    print("New dataset accuracy " + str(np.mean(newAccuracyList)) + " with std of " + str(np.std(newAccuracyList)))
-
+    print("Before fine-tuning: ")
+    print("Original dataset accuracy " + str(np.mean(originalAccuracyList1)) + " with std of " + str(np.std(originalAccuracyList1)))
+    print("After fine-tuning: ")
+    print("Original dataset accuracy " + str(np.mean(originalAccuracyList2)) + " with std of " + str(np.std(originalAccuracyList2)))
+    print("After knowledge distillation: ")
+    print("Original dataset accuracy " + str(np.mean(originalAccuracyList3)) + " with std of " + str(np.std(originalAccuracyList3)))
+    
+    print("##################################")
+    print("New accuracy: ")
+    print("Before fine-tuning: ")
+    print("Original dataset accuracy " + str(np.mean(newAccuracyList1)) + " with std of " + str(np.std(newAccuracyList1)))
+    print("After fine-tuning: ")
+    print("Original dataset accuracy " + str(np.mean(newAccuracyList2)) + " with std of " + str(np.std(newAccuracyList2)))
+    print("After knowledge distillation: ")
+    print("Original dataset accuracy " + str(np.mean(newAccuracyList3)) + " with std of " + str(np.std(newAccuracyList3)))
+    
 
 
 
