@@ -242,7 +242,7 @@ def train():
 
     print("Test loss = " + str(testLoss))
     print("Accuracy = " + str(testAcc))
-    newAccuracyList1.appedn(testAcc)
+    newAccuracyList1.append(testAcc)
 
     #fine tuning step
     for layer in model.layers:
@@ -289,9 +289,9 @@ def train():
 
     print("Test loss = " + str(testLoss))
     print("Accuracy = " + str(testAcc))
+    newAccuracyList2.append(testAcc)
 
-
-        #evaluate using the original dataset
+    #evaluate using the original dataset
     from sklearn.metrics import accuracy_score
 
     # Importing the test dataset
@@ -339,7 +339,7 @@ def train():
     history = distiller.fit(trainGen, epochs=20, validation_data=valGen)
     newDatasetLoss, newDatasetAccuracy = distiller.evaluate(testGen)
 
-    newAccuracyList2.append(newDatasetAccuracy)
+    newAccuracyList3.append(newDatasetAccuracy)
     print("New dataset accuracy: " + str(newDatasetAccuracy))
 
     #evaluate using the original dataset
