@@ -160,14 +160,12 @@ newAccuracyList3 = list()
 
 def train():
     model = tf.keras.models.load_model("traffic_classifier.h5")
-    #model.compile(optimizer='adam', loss='mean_squared_error')
     model.compile(optimizer=tf.keras.optimizers.Adam(
                     learning_rate=0.00001,
                     amsgrad=True),
                 loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
                 metrics=['accuracy'])
 
-    #model.summary()
 
     previousOutputLayer = model.layers[len(model.layers) - 1].get_weights()
 
@@ -178,15 +176,9 @@ def train():
 
     #add extra class
     model.add(Dense(45, activation='softmax', kernel_regularizer=regularizer))
-    #model.summary()
 
     #add the weights of the previous layer
     currentOutputLayer = model.layers[len(model.layers) - 1].get_weights()
-
-    # print("WEIGHTS BEFORE")
-    # print(previousOutputLayer[0])
-    # print("BISASES BEFORE")
-    # print(previousOutputLayer[1])
 
     #copy the parameters from the previous output layer to the new
     for i in range(len(previousOutputLayer[0])):
@@ -196,18 +188,9 @@ def train():
     for i in range(len(previousOutputLayer[1])):
         currentOutputLayer[1][i] = previousOutputLayer[1][i]
 
-    # print("WEIGHTS AFTER")
-    # print(currentOutputLayer[0])
-    # print("BISASES AFTER")
-    # print(currentOutputLayer[1])
-
     #update the actual output layer
-    print("Updating the parameters...")
-    #print(model.layers[len(model.layers) - 1].get_weights())
     model.layers[len(model.layers) - 1].set_weights(currentOutputLayer)
 
-    #print("Checking if the parameters are actually updated...")
-    #print(model.layers[len(model.layers) - 1].get_weights())
 
     model.compile(optimizer=tf.keras.optimizers.Adam(
         learning_rate=0.00001,
